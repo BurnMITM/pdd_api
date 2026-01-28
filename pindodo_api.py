@@ -65,6 +65,7 @@ import subprocess
 import time
 import uuid
 
+import requests
 from Crypto.PublicKey import RSA
 from curl_cffi import Session
 from Crypto.Cipher import AES
@@ -74,6 +75,7 @@ import base64
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
 from Crypto.Random import get_random_bytes
+from rnet import Client, Emulation
 
 
 proxies = {
@@ -91,7 +93,7 @@ class PddApi:
         self.rctk_plat = "com.xunmeng.pinduoduo.ios"
         self.rctk_ver = "7.93.0"
         self.pdd_config = "V4:002.079300"
-        self.ses = Session(proxies=proxies, timeout=10, impersonate="safari_ios")
+        self.ses = Session(proxies=proxies, timeout=10, ja3="771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49188-49187-49162-49161-49192-49191-49172-49171-157-156-61-60-53-47-49160-49170-10,0-23-65281-10-11-16-5-13-18-51-45-43-21,29-23-24-25,0")
         self.app_version = "7.93.0"
         self.os_version = "14.6"
         self.bundle_id = "com.xunmeng.pinduoduo"
@@ -103,7 +105,7 @@ class PddApi:
         self.etag = self.generate_random_string(8)
         self.etag = "HnfIQMVP"
 
-        self.x_pdd_info = "tz%3DAsia%2FBangkok%26pzvonm%3D8" # tz%3DAsia%2FKrasnoyarsk%26pzvonm%3D8
+        self.x_pdd_info = "tz%3DAsia%2FKrasnoyarsk%26pzvonm%3D0" # tz%3DAsia%2FKrasnoyarsk%26pzvonm%3D8 tz%3DAsia%2FBangkok%26pzvonm%3D8
         self.lat = "NLDEIQLNYEKTKGOHXDM7QDMHUHBBQQ34KOWFARYKS2EDOJW2S46A12042a1"  # Нужно понять алгоритм
         self.p_appname = "pinduoduo"
         self.build_no = '202601181454'
@@ -176,8 +178,9 @@ class PddApi:
         n = random.randint(10481310359585575, 95481310359585575)
         random_number = n.to_bytes(8, "little")
 
-        hex_dump = f"""08fc{self.etag.encode().hex()}{server_time.hex()}{random_number.hex()}00d83fc3ef8baacc261f4afe564a45858ba1cfe93492d89439095d24ec4b4e2bbf4c7689b349f21c"""
-        print(hex_dump)
+        hex_dump = f"""08fc{self.etag.encode().hex()}{server_time.hex()}{random_number.hex()}00d83fc3ef8baacc261f4afe564a45858ba1cfe93492d8948f20b16a91d14719bc38ea2ba3107bad"""
+        # print(hex_dump)
+        # hex_dump = f'08fc486e6649514d5650{server_time.hex()}ffffffffffffff7f00d83fc3ef8baacc261f4afe564a45858ba1cfe93492d89439095d24ec4b4e2bbf4c7689b349f21c'
         raw = bytes.fromhex(hex_dump)
 
         # === CONFIG ===
@@ -237,7 +240,8 @@ class PddApi:
         return token
 
     def get_pdd_queries(self):
-        return f'width=750.000000&height=1334.000000&brand=apple&model=iPhone 6s&osv=14.6&appv={self.app_version}&pl=iOS&net=1&dpr=2.000000'
+        return 'width=750.000000&height=1334.000000&brand=apple&model=iPhone 6s&osv=14.6&appv=7.93.0&pl=iOS&net=-1&dpr=2.000000'
+        # v2(с vpn включённым) return f'width=750.000000&height=1334.000000&brand=apple&model=iPhone 6s&osv=14.6&appv={self.app_version}&pl=iOS&net=1&dpr=2.000000'
 
     def get_rctk_sign(self, input_string):
         """Hash input string using custom_sha256 binary."""
@@ -457,6 +461,7 @@ class PddApi:
                 print(f"Error query personal {e}")
 
     def ip_galen(self):
+        """Если возвращает "result":true, то нас не детектят, возвращает информацию об стране по ip для авторизации"""
         rctk = f'rctk_plat={self.rctk_plat}&rctk_ver={self.rctk_ver}&rctk_ts={int(time.time() * 1000)}&rctk_nonce={str(uuid.uuid4()).upper().replace("-", "")}&rctk_rpkg=0'
         data_sign = '&rctk_ak=logout&rctk_path=/api/galen/grayscale&rctk_post={"scene":"LOGIN","gray_type":2,"ip_type":1}'
         headers = {
@@ -472,12 +477,12 @@ class PddApi:
             'Lat': self.lat,
             'Multi-Set': '1,1,100000824',
             'P-Appname': self.p_appname,
-            'P-Proc-Time': '2156135',
+            'P-Proc-Time': '2159135',
             'Rctk': rctk,
             'Rctk-Sign': self.get_rctk_sign(f'{rctk}{data_sign}'),
             'X-App-Lang': 'en',
             'X-App-Ui': 'zm%3D0%26dm%3D0',
-            'X-B3-Ptracer': str(os.urandom(16).hex().upper()),
+            'X-B3-Ptracer': str(uuid.uuid4()).upper().replace("-", ""),
             'X-Pdd-Info': self.x_pdd_info,
         }
 
@@ -491,5 +496,44 @@ class PddApi:
             'https://api.pinduoduo.com/api/galen/grayscale',
             headers=headers,
             json=json_data,
+        )
+        print(response.text)
+
+    def polemon_gbdbpdc(self):
+        """Этот запрос показывает, детектят ли нас
+        Детектят - {"access_array":"1","extra_array":"4,5","tip1":"","tip2":"","text":"dwfca","history":false,"degrade":false,"extra_array_style":1}
+        Не детектят - {"access_array":"8,9,3,1","extra_array":"4,7","tip1":"","tip2":"","text":"wkdkb","history":false,"degrade":false,"extra_array_style":1}
+
+        Этот запрос возвращает какие авторизации нам доступны
+        """
+
+        rctk = f'rctk_plat={self.rctk_plat}&rctk_ver={self.rctk_ver}&rctk_ts={int(time.time() * 1000)}&rctk_nonce={str(uuid.uuid4()).upper().replace("-", "")}&rctk_rpkg=0'
+        data_sign = '&rctk_ak=logout&rctk_path=/api/polemon/gbdbpdc&rctk_post={"extra_info":0}'
+        headers = {
+            'Host': 'api.pinduoduo.com',
+            'Accept': '*/*',
+            'Accept-Language': 'ru-RU;q=1',
+            'Content-Type': 'application/json',
+            'Etag': self.etag,
+            'Pdd-Config': self.pdd_config,
+            'User-Agent': self.user_agent,
+            'X-Pdd-Queries': self.get_pdd_queries(),
+            'Anti-Token': f'1ac{self.get_short_anti_token()}',
+            'Lat': self.lat,
+            'Multi-Set': '1,1,100000107',
+            'P-Appname': self.p_appname,
+            'P-Proc-Time': '10775',
+            'Rctk': rctk,
+            'Rctk-Sign': self.get_rctk_sign(f'{rctk}{data_sign}'),
+            'X-App-Lang': 'en',
+            'X-App-Ui': 'zm%3D0%26dm%3D0',
+            'X-B3-Ptracer': str(uuid.uuid4()).upper().replace("-", ""),
+            'X-Pdd-Info': self.x_pdd_info,
+        }
+        data = '{"extra_info":0}'
+        response = self.ses.post(
+            'https://api.pinduoduo.com/api/polemon/gbdbpdc',
+            headers=headers,
+            data=data,
         )
         print(response.text)
