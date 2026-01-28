@@ -58,6 +58,8 @@
 import json
 import os
 import random
+import secrets
+import string
 import struct
 import subprocess
 import time
@@ -85,11 +87,11 @@ class CountryCodes:
 
 class PddApi:
     def __init__(self):
-        self.user_agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 ===  iOS/14.6 Model/iPhone8,1 BundleID/com.xunmeng.pinduoduo AppVersion/7.92.0 AppBuild/202601181454 pversion/0'
+        self.user_agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 ===  iOS/14.6 Model/iPhone8,1 BundleID/com.xunmeng.pinduoduo AppVersion/7.93.0 AppBuild/202601251202 pversion/2917'
         self.rctk_plat = "com.xunmeng.pinduoduo.ios"
         self.rctk_ver = "7.93.0"
         self.pdd_config = "V4:002.079300"
-        self.ses = Session(proxies=proxies, timeout=10, impersonate="chrome131")
+        self.ses = Session(proxies=proxies, timeout=10, impersonate="safari_ios")
         self.app_version = "7.93.0"
         self.os_version = "14.6"
         self.bundle_id = "com.xunmeng.pinduoduo"
@@ -98,9 +100,18 @@ class PddApi:
         self.user_phone_name = "iPhone"
         self.idfa = "00000000-0000-0000-0000-000000000000"
         self.idfv = str(uuid.uuid4()).upper() # Меняется после переустановки
-        self.etag = ""
+        self.etag = self.generate_random_string(8)
+        self.etag = "HnfIQMVP"
+
         self.x_pdd_info = "tz%3DAsia%2FBangkok%26pzvonm%3D8" # tz%3DAsia%2FKrasnoyarsk%26pzvonm%3D8
-        self.lat = "" # Нужно понять алгоритм
+        self.lat = "NLDEIQLNYEKTKGOHXDM7QDMHUHBBQQ34KOWFARYKS2EDOJW2S46A12042a1"  # Нужно понять алгоритм
+        self.p_appname = "pinduoduo"
+        self.build_no = '202601181454'
+
+    @staticmethod
+    def generate_random_string(len) -> str:
+        alphabet = string.ascii_letters
+        return''.join(secrets.choice(alphabet) for _ in range(len))
 
     def generate_public_key(self):
         n_hex = 'c21da1b2c66236e7cadcf82c04b3dd18a41fa9fe99e23388de4ab46636e4dd0296725d0a699e58544fddddcf251986230d03d7451a25eb5c6232c904cdc7bb6e4cb9f18126fb6e83f1a59b5da14917838e82938e71088c68356ea062a73d83ee44db698fa6cab356e0881d68b13aa8f87543f0d721cdd9b687a0175ee030479b'
@@ -139,6 +150,49 @@ class PddApi:
         data_b64 = base64.b64encode(ciphertext).decode()
 
         return key_b64, data_b64
+
+    def get_short_anti_token(self):
+        '''id __cdecl -[PDDRiskTokenManager getShortRiskToken](PDDRiskTokenManager *self, SEL a2)
+        ========== [parametersWithParams:] ==========
+📦 Params NSDictionary:
+  pdd_id = HnfIQMVP
+  device_id = 8C616E49-E777-4FEB-92B3-078001966D9A
+  random_number = 65481310359585575
+  keychain_id = 261F4AFE-564A-4585-8BA1-CFE93492D894
+  server_time = 1769573816485
+🧬 Risk NSData length: 66
+🧬 Risk NSData HEX:
+00000000  08 fc 48 6e 66 49 51 4d 56 50 a5 98 d1 02 9c 01  ..HnfIQMVP......
+00000010  00 00 27 03 69 a3 e7 a2 e8 00 00 d8 3f c3 ef 8b  ..'.i.......?...
+00000020  aa cc 26 1f 4a fe 56 4a 45 85 8b a1 cf e9 34 92  ..&.J.VJE.....4.
+00000030  d8 94 39 09 5d 24 ec 4b 4e 2b bf 4c 76 89 b3 49  ..9.]$.KN+.Lv..I
+00000040  f2 1c                                            ..
+============================================
+        '''
+        n = int(time.time() * 1000)
+
+        server_time = n.to_bytes(8, "little")
+
+        n = random.randint(10481310359585575, 95481310359585575)
+        random_number = n.to_bytes(8, "little")
+
+        hex_dump = f"""08fc{self.etag.encode().hex()}{server_time.hex()}{random_number.hex()}00d83fc3ef8baacc261f4afe564a45858ba1cfe93492d89439095d24ec4b4e2bbf4c7689b349f21c"""
+        print(hex_dump)
+        raw = bytes.fromhex(hex_dump)
+
+        # === CONFIG ===
+        KEY = b"_pdd_anti_token_"  # 16 bytes
+        IV = b"\x00" * 16  # zero IV (CBC)
+        BLOCK_SIZE = 16
+
+        cipher = AES.new(KEY, AES.MODE_CBC, IV)
+        encrypted = cipher.encrypt(pad(raw, BLOCK_SIZE))
+
+        # === STEP 4: base64 ===
+        token = base64.b64encode(encrypted).decode()
+
+        print(token)
+        return token
 
     def get_anti_token(self):
         '''0b        -> field id
@@ -219,7 +273,7 @@ class PddApi:
             'Anti-Token': f'1ab{self.get_anti_token()}',
             'Lat': self.lat,
             'Multi-Set': '1,1,100000107',
-            'P-Appname': 'pinduoduo',
+            'P-Appname': self.p_appname,
             'P-Proc-Time': '65614',
             'Rctk': rctk,
             'Rctk-Sign': self.get_rctk_sign(f'{rctk}{data_sign}'),
@@ -227,7 +281,7 @@ class PddApi:
             'X-App-Ui': 'zm%3D0%26dm%3D0',
             'X-B3-Ptracer': str(os.urandom(16).hex().upper()),
             'X-P-T': 't=1&x-p1-t=1',
-            'X-P1': 'MDQwMTAyc2lNemlTenUtWDNWYS0zdkJRLTY4M2UtOWw4UXlBb1hJRTVEKRUSr5UmM8DCBafqHwGSEShtTkA9BdE8goimGKArXowjrVd9nCcIXIVaX/B+qQyGWaRzCWQBKdpCH7F9u+GJUX5+pskyFuCZQV0=',
+            'X-P1': 'MDQwMTAyc2lNemlTenUtWDNWYS0zdkJRLTY4M2UtOWw5UXlBb1hJRTVEKRUSr5UmM8DCBafqHwGSEShtTkA9BdE8goimGKArXowjrVd9nCcIXIVaX/B+qQyGWaRzCWQBKdpCH7F9u+GJUX5+pskyFuCZQV0=',
             'X-Pdd-Info': self.x_pdd_info,
         }
 
@@ -333,17 +387,15 @@ class PddApi:
             'Host': 'meta.pinduoduo.com',
             'Accept': '*/*',
             'Content-Type': 'application/json',
-            # 'Accept-Encoding': 'gzip, deflate',
             'User-Agent': self.user_agent,
-            # 'Content-Length': '331',
             'Accept-Language': 'ru',
         }
 
         json_data = {
             'appid': 'com.xunmeng.pinduoduo',
             'network': 'unknow',
-            'internal_no': 1768718650028,
-            'version': '7.92.0',
+            'internal_no': int(time.time() * 1000),
+            'version': self.app_version,
             'sub_type': 'main',
             'channel': 'app store',
             'screen': '375x667',
@@ -351,12 +403,93 @@ class PddApi:
             'arch_type': 'ARM64',
             'patch_version': 0,
             'platform': 'iOS',
-            'device_id': 'HnfIQMVP',
-            'build_no': '202601181454',
+            'device_id': self.etag,
+            'build_no': self.build_no,
             'model': 'iPhone8,1',
             'os_version': '14.6',
             'env': 'prod',
         }
+        count = 0
+        while count < 3:
+            try:
+                response = self.ses.post('https://meta.pinduoduo.com/api/app/v1/bd/query', headers=headers, json=json_data)
+                print(response.text)
+                return
+            except Exception as e:
+                count += 1
+                print(f"Error bd_query {e}")
 
-        response = self.ses.post('https://meta.pinduoduo.com/api/app/v1/bd/query', headers=headers, json=json_data,
-                                 verify=False)
+    def query_personal(self):
+        rctk = f'rctk_plat={self.rctk_plat}&rctk_ver={self.rctk_ver}&rctk_ts={int(time.time() * 1000)}&rctk_nonce={str(uuid.uuid4()).upper().replace("-", "")}&rctk_rpkg=0'
+        data_sign = '&rctk_ak=logout&rctk_path=/api/caterham/v3/query/personal&rctk_post=&count=20&dark_mode=0&engine_version=2.0&is_pull_down=1&list_id=1430957161&offset=0&page_el_sn=99084&page_id=personal.html&page_sn=10001&req_action_type=6&req_list_action_type=6'
+        headers = {
+            'Host': 'api.pinduoduo.com',
+            'Accept': '*/*',
+            'Accept-Language': 'ru-RU;q=1',
+            'Etag': self.etag,
+            'Pdd-Config': self.pdd_config,
+            'User-Agent': self.user_agent,
+            'X-Pdd-Queries': self.get_pdd_queries(),
+            'Anti-Token': f'1ac{self.get_short_anti_token()}',
+            'Lat': self.lat,
+            'Multi-Set': '1,1,100000176',
+            'P-Appname': self.p_appname,
+            'P-Proc-Time': '39975',
+            'Rctk': rctk,
+            'Rctk-Sign': self.get_rctk_sign(f'{rctk}{data_sign}'),
+            'X-App-Lang': 'en',
+            'X-App-Ui': 'zm%3D0%26dm%3D0',
+            'X-B3-Ptracer': str(os.urandom(16).hex().upper()),
+            'X-Pdd-Info': self.x_pdd_info,
+        }
+
+        count = 0
+        while count < 3:
+            try:
+                response = self.ses.get(
+                    'https://api.pinduoduo.com/api/caterham/v3/query/personal?offset=0&dark_mode=0&req_action_type=6&is_pull_down=1&list_id=1430957161&page_id=personal.html&count=20&req_list_action_type=6&page_sn=10001&engine_version=2.0&page_el_sn=99084',
+                    headers=headers,
+                )
+                print(response.text)
+                return
+            except Exception as e:
+                count += 1
+                print(f"Error query personal {e}")
+
+    def ip_galen(self):
+        rctk = f'rctk_plat={self.rctk_plat}&rctk_ver={self.rctk_ver}&rctk_ts={int(time.time() * 1000)}&rctk_nonce={str(uuid.uuid4()).upper().replace("-", "")}&rctk_rpkg=0'
+        data_sign = '&rctk_ak=logout&rctk_path=/api/galen/grayscale&rctk_post={"scene":"LOGIN","gray_type":2,"ip_type":1}'
+        headers = {
+            'Host': 'api.pinduoduo.com',
+            'Accept': '*/*',
+            'Accept-Language': 'ru-RU;q=1',
+            'Content-Type': 'application/json',
+            'Etag': self.etag,
+            'Pdd-Config': self.pdd_config,
+            'User-Agent': self.user_agent,
+            'X-Pdd-Queries': self.get_pdd_queries(),
+            'Anti-Token': f'1ac{self.get_short_anti_token()}',
+            'Lat': self.lat,
+            'Multi-Set': '1,1,100000824',
+            'P-Appname': self.p_appname,
+            'P-Proc-Time': '2156135',
+            'Rctk': rctk,
+            'Rctk-Sign': self.get_rctk_sign(f'{rctk}{data_sign}'),
+            'X-App-Lang': 'en',
+            'X-App-Ui': 'zm%3D0%26dm%3D0',
+            'X-B3-Ptracer': str(os.urandom(16).hex().upper()),
+            'X-Pdd-Info': self.x_pdd_info,
+        }
+
+        json_data = {
+            'scene': 'LOGIN',
+            'gray_type': 2,
+            'ip_type': 1,
+        }
+
+        response = self.ses.post(
+            'https://api.pinduoduo.com/api/galen/grayscale',
+            headers=headers,
+            json=json_data,
+        )
+        print(response.text)
