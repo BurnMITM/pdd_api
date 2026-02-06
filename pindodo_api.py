@@ -240,8 +240,8 @@ class PddApi:
         return token
 
     def get_pdd_queries(self):
-        return 'width=750.000000&height=1334.000000&brand=apple&model=iPhone 6s&osv=14.6&appv=7.93.0&pl=iOS&net=-1&dpr=2.000000'
-        # v2(с vpn включённым) return f'width=750.000000&height=1334.000000&brand=apple&model=iPhone 6s&osv=14.6&appv={self.app_version}&pl=iOS&net=1&dpr=2.000000'
+        # return 'width=750.000000&height=1334.000000&brand=apple&model=iPhone 6s&osv=14.6&appv=7.93.0&pl=iOS&net=-1&dpr=2.000000'
+        return f'width=750.000000&height=1334.000000&brand=apple&model=iPhone 6s&osv=14.6&appv={self.app_version}&pl=iOS&net=1&dpr=2.000000'
 
     def get_rctk_sign(self, input_string):
         """Hash input string using custom_sha256 binary."""
